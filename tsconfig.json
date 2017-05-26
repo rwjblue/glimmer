@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    // Compilation Configuration
     "target": "es2015",
     "inlineSources": true,
     "inlineSourceMap": true,
@@ -8,11 +7,9 @@
     "rootDir": "packages",
     "baseUrl" : "./packages",
 
-    // Environment Configuration
     "experimentalDecorators": true,
     "moduleResolution": "node",
 
-    // Enhance Strictness
     "noImplicitAny": true,
     "suppressImplicitAnyIndexErrors": true,
     "noUnusedLocals": true,
