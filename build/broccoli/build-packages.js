@@ -9,6 +9,7 @@ const glob = require('glob');
 const path = require('path');
 const writeFile = require('broccoli-file-creator');
 const fs = require('fs');
+const debugTree = require('broccoli-debug').buildDebugCallback('glimmer-vm');
 
 const TSCONFIG_PATH = `${__dirname}/../../build/tsconfig.json`;
 const PACKAGES_PATH = `${__dirname}/../../packages`;
@@ -76,8 +77,11 @@ function topsortPackages() {
  * @param {string} packagePath
  */
 function treeForPackage(packagePath) {
+  let pkg = require(packagePath + '/package');
+  let packageName = pkg.name;
+
   let srcTrees = [
-    funnel(packagePath, { exclude: ['test/**/*'] })
+    debugTree(funnel(packagePath, { exclude: ['test/**/*'] }), `input-${packageName}`)
   ];
 
   let packageTree;
@@ -90,11 +94,11 @@ function treeForPackage(packagePath) {
       exclude: ['package.json']
     });
   } else {
-    packageTree = funnel(buildPackage({
+    packageTree = funnel(debugTree(buildPackage({
       srcTrees,
       projectPath: packagePath,
       tsconfigPath: TSCONFIG_PATH,
-    }), { destDir: 'dist' });
+    }), `glimmer-build-out-${packageName}`), { destDir: 'dist' });
   }
 
   let packageJSONTree = treeForPackageJSON(packagePath);
