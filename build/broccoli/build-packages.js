@@ -11,7 +11,7 @@ const writeFile = require('broccoli-file-creator');
 const fs = require('fs');
 const debugTree = require('broccoli-debug').buildDebugCallback('glimmer-vm');
 
-const TSCONFIG_PATH = `${__dirname}/../../build/tsconfig.json`;
+const TSCONFIG_PATH = `${__dirname}/../../tsconfig.json`;
 const PACKAGES_PATH = `${__dirname}/../../packages`;
 
 /**
