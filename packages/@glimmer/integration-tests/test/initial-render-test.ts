@@ -25,9 +25,11 @@ import {
   assertElement,
   assertElementShape,
   componentSuite,
+  RenderTest,
 } from '@glimmer/integration-tests';
 import { expect } from '@glimmer/util';
-import { SimpleElement } from '@simple-dom/interface';
+import { SimpleElement, NodeType } from '@simple-dom/interface';
+import RenderDelegate from '../lib/render-delegate';
 
 // `window.ActiveXObject` is "falsey" in IE11 (but not `undefined` or `false`)
 // `"ActiveXObject" in window` returns `true` in all IE versions
@@ -1435,6 +1437,217 @@ class RehydratingComponents extends AbstractRehydrationTests {
   }
 }
 
+class ChaosMonkeyRehydration extends RenderTest {
+  static suiteName = 'chaos-rehydration';
+
+  private _sample: null | number;
+  protected delegate!: RehydrationDelegate;
+  protected serverOutput!: Option<string>;
+
+  constructor(delegate: RenderDelegate) {
+    super(delegate);
+
+    let seed = QUnit.config.seed;
+    let sample: null | number = null;
+
+    if (seed) {
+    }
+
+    this._sample = sample;
+  }
+
+  renderServerSide(
+    template: string | ComponentBlueprint,
+    context: Dict<unknown>,
+    element: SimpleElement | undefined = undefined
+  ): void {
+    this.serverOutput = this.delegate.renderServerSide(
+      template as string,
+      context,
+      () => this.takeSnapshot(),
+      element
+    );
+    replaceHTML(this.element, this.serverOutput);
+  }
+
+  renderClientSide(template: string | ComponentBlueprint, context: Dict<unknown>): void {
+    this.context = context;
+    this.renderResult = this.delegate.renderClientSide(template as string, context, this.element);
+  }
+
+  assertExactServerOutput(_expected: string) {
+    let output = expect(
+      this.serverOutput,
+      'must renderServerSide before calling assertServerOutput'
+    );
+    equalTokens(output, _expected);
+  }
+
+  assertServerOutput(..._expected: Content[]) {
+    this.assertExactServerOutput(content([OPEN, ..._expected, CLOSE]));
+  }
+
+  assertServerOutputDiffers(_expected: string) {
+    let output = expect(
+      this.serverOutput,
+      'must renderServerSide before calling assertServerOutput'
+    );
+    equalTokens(output, _expected, undefined, true);
+  }
+
+  getRandomForIteration(iteration: number) {
+    const { seed } = QUnit.config;
+
+    const str = iteration + '\x1C' + seed;
+
+    // from https://github.com/qunitjs/qunit/blob/2.9.3/src/core/utilities.js#L144-L158
+    let hash = 0;
+
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
+    }
+
+    let hex = (0x100000000 + hash).toString(16);
+    if (hex.length < 8) {
+      hex = '0000000' + hex;
+    }
+
+    let result = hex.slice(-8);
+    let sample = parseInt(result, 16) || -1;
+
+    // from https://github.com/qunitjs/qunit/blob/2.9.3/src/core/processing-queue.js#L134-L154
+    sample ^= sample << 13;
+    sample ^= sample >>> 17;
+    sample ^= sample << 5;
+
+    if (sample < 0) {
+      sample += 0x100000000;
+    }
+
+    let randomResult = sample / 0x100000000;
+
+    console.log('random: ', randomResult);
+
+    return randomResult;
+  }
+
+  wreakHavoc(iteration: number = 0) {
+    let element = this.element as Element;
+
+    let original = element.innerHTML;
+
+    function collectChildNodes(childNodes: Node[], node: Node): Node[] {
+      // do some thing with the node here
+      let children = node.childNodes;
+      for (let i = 0; i < children.length; i++) {
+        let child = children[i];
+        childNodes.push(child);
+
+        collectChildNodes(childNodes, child);
+      }
+
+      return childNodes;
+    }
+
+    // gather all the nodes recursively
+    let nodes: Node[] = collectChildNodes([], element);
+
+    // cannot remove the first node, that is what makes it rehydrateable
+    nodes = nodes.slice(1);
+
+    // select a random node to remove
+    let indexToRemove = Math.floor(this.getRandomForIteration(iteration) * nodes.length);
+    let nodeToRemove = nodes[indexToRemove];
+    let parent = nodeToRemove.parentNode!;
+
+    // remove it
+    parent.removeChild(nodeToRemove);
+
+    let removedNodeDisplay;
+    switch (nodeToRemove.nodeType) {
+      case NodeType.COMMENT_NODE:
+        removedNodeDisplay = `<!--${nodeToRemove.nodeValue}-->`;
+        break;
+      case NodeType.ELEMENT_NODE:
+        removedNodeDisplay = (nodeToRemove as Element).outerHTML;
+        break;
+      default:
+        removedNodeDisplay = nodeToRemove.nodeValue;
+    }
+
+    this.assert.notEqual(
+      original,
+      element.innerHTML,
+      `\`${removedNodeDisplay}\` was removed from \`${original}\``
+    );
+  }
+
+  runIterations(template: string, count: number) {
+    let element = this.element as Element;
+    let elementResetValue = element.innerHTML;
+
+    let runIteration = (iteration: number) => {
+      try {
+        this.wreakHavoc(iteration);
+
+        this.renderClientSide(template, { b: '', c: '', d: '' });
+
+        let element = this.element as Element;
+        this.assert.equal(
+          element.innerHTML,
+          '<div>a </div>',
+          `matches after iteration ${iteration} with ${QUnit.config.seed}`
+        );
+      } finally {
+        // reset the HTML
+        element.innerHTML = elementResetValue;
+      }
+    };
+
+    let urlParams = (QUnit as any).urlParams as Dict<string>;
+    if (urlParams.iteration) {
+      runIteration(parseInt(urlParams.iteration, 10));
+    } else {
+      for (let i = 0; i < count; i++) {
+        runIteration(i);
+      }
+    }
+  }
+
+  @test
+  'adjacent text nodes'() {
+    let template = '<div>a {{b}}{{c}}{{d}}</div>';
+
+    this.renderServerSide(template, { b: '', c: '', d: '' });
+
+    let b = blockStack();
+    this.assertServerOutput(
+      `<div>a ${b(1)}<!--% %-->${b(1)}${b(1)}<!--% %-->${b(1)}${b(1)}<!--% %-->${b(1)}</div>`
+    );
+
+    this.runIterations(template, 100);
+  }
+
+  @test
+  '<p> invoking a block which emits a <div>'() {
+    let template = '<p>hello {{#if show}}<div>world!</div>{{/if}}</p>';
+
+    this.renderServerSide(template, { show: true });
+    let b = blockStack();
+
+    this.assertServerOutputDiffers(`<p>hello ${b(2)}<div>world!</div>${b(2)}<p></p>`);
+
+    this.wreakHavoc();
+
+    this.renderClientSide(template, { show: true });
+
+    let element = this.element as Element;
+    this.assert.equal(element.innerHTML, '<p>hello <div>world!</div></p>');
+  }
+}
+
 suite(Rehydration, RehydrationDelegate);
+suite(ChaosMonkeyRehydration, RehydrationDelegate);
 jitSuite(RenderTests);
 componentSuite(RehydratingComponents, RehydrationDelegate);

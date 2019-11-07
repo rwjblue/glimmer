@@ -13,7 +13,8 @@ export function snapshotIsNode(snapshot: IndividualSnapshot): snapshot is Simple
 export function equalTokens(
   testFragment: SimpleElement | string | null,
   testHTML: SimpleElement | string,
-  message: Option<string> = null
+  message: Option<string> = null,
+  _negate: boolean = false
 ) {
   if (testFragment === null) {
     throw new Error(`Unexpectedly passed null to equalTokens`);
@@ -29,17 +30,27 @@ export function equalTokens(
   let equiv = QUnit.equiv(fragTokens.tokens, htmlTokens.tokens);
 
   if (equiv && fragTokens.html !== htmlTokens.html) {
-    QUnit.assert.deepEqual(
-      fragTokens.tokens,
-      htmlTokens.tokens,
-      message || 'expected tokens to match'
-    );
+    if (_negate) {
+      QUnit.assert.notDeepEqual(
+        fragTokens.tokens,
+        htmlTokens.tokens,
+        message || 'expected tokens not to match'
+      );
+    } else {
+      QUnit.assert.deepEqual(
+        fragTokens.tokens,
+        htmlTokens.tokens,
+        message || 'expected tokens to match'
+      );
+    }
   } else {
+    let result = QUnit.equiv(fragTokens.tokens, htmlTokens.tokens);
+
     QUnit.assert.pushResult({
-      result: QUnit.equiv(fragTokens.tokens, htmlTokens.tokens),
+      result: _negate ? !result : result,
       actual: fragTokens.html,
       expected: htmlTokens.html,
-      message: message || 'expected tokens to match',
+      message: message || `expected tokens ${_negate ? 'not ' : ''}to match`,
     });
   }
 
